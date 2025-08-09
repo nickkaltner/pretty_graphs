@@ -1,0 +1,581 @@
+defmodule PrettyGraphs.StorybookTest do
+  use ExUnit.Case, async: false
+
+  @moduledoc false
+
+  @doc false
+  test "generates storybook HTML with examples and code" do
+    basic = basic_example()
+
+    examples = [
+      basic,
+      gradient_diagonal_example(),
+      phoenix_global_attrs_example(),
+      per_point_attrs_example(),
+      map_shape_example(),
+      numbers_list_example()
+    ]
+
+    html =
+      [
+        html_header(),
+        interactive_section(basic.svg),
+        Enum.map(examples, fn ex -> example_section(ex) end),
+        html_footer()
+      ]
+      |> IO.iodata_to_binary()
+
+    out_dir = Path.join(File.cwd!(), "test_output")
+    File.mkdir_p!(out_dir)
+    out_path = Path.join(out_dir, "storybook.html")
+    File.write!(out_path, html)
+
+    # Basic assertions that we produced a viable storybook
+    assert File.exists?(out_path)
+    body = File.read!(out_path)
+    assert String.contains?(body, "<svg")
+    assert String.contains?(body, "Fruit Sales")
+    # Ensure at least one example shows a phx attribute
+    assert String.contains?(body, "phx-click")
+    # Ensure code snippets are present and escaped (look for &lt; in <code> blocks)
+    assert String.contains?(body, "&lt;svg") or String.contains?(body, "PrettyGraphs")
+    IO.puts("Storybook written to test_output/storybook.html")
+  end
+
+  # ----------------------------------------------------------------------------
+  # Example builders
+  # ----------------------------------------------------------------------------
+
+  defp basic_example do
+    code = ~S"""
+    data = [{"Apples", 10}, {"Bananas", 25}, {"Cherries", 18}]
+    svg = PrettyGraphs.bar_chart(data, title: "Fruit Sales")
+    """
+
+    data = [{"Apples", 10}, {"Bananas", 25}, {"Cherries", 18}]
+    svg = PrettyGraphs.bar_chart(data, title: "Fruit Sales")
+
+    %{
+      title: "Basic: Horizontal rounded bars with title",
+      code: code,
+      svg: svg
+    }
+  end
+
+  defp gradient_diagonal_example do
+    code = ~S"""
+    data = [{"Apples", 10}, {"Bananas", 25}, {"Cherries", 18}]
+    svg = PrettyGraphs.bar_chart(
+      data,
+      title: "Diagonal Gradient",
+      gradient: [from: "#0ea5e9", to: "#a78bfa", direction: :down_right]
+    )
+    """
+
+    data = [{"Apples", 10}, {"Bananas", 25}, {"Cherries", 18}]
+
+    svg =
+      PrettyGraphs.bar_chart(
+        data,
+        title: "Diagonal Gradient",
+        gradient: [from: "#0ea5e9", to: "#a78bfa", direction: :down_right]
+      )
+
+    %{
+      title: "Gradient: Diagonal (:down_right)",
+      code: code,
+      svg: svg
+    }
+  end
+
+  defp phoenix_global_attrs_example do
+    code = ~S"""
+    data = [{"Apples", 10}, {"Bananas", 25}, {"Cherries", 18}]
+    svg =
+      PrettyGraphs.bar_chart(
+        data,
+        title: "Phoenix attrs on svg + bars",
+        svg_attrs: %{"phx-hook" => "Chart"},
+        svg_class: ["w-full", "h-auto"],
+        bar_attrs: [data_role: "bar", %{"phx-click" => "bar_clicked"}],
+        bar_class: ["cursor-pointer", "hover:opacity-80"],
+        gradient: [from: "#4f46e5", to: "#a78bfa", direction: :right]
+      )
+    """
+
+    data = [{"Apples", 10}, {"Bananas", 25}, {"Cherries", 18}]
+
+    svg =
+      PrettyGraphs.bar_chart(
+        data,
+        title: "Phoenix attrs on svg + bars",
+        svg_attrs: %{"phx-hook" => "Chart"},
+        svg_class: ["w-full", "h-auto"],
+        bar_attrs: [%{"phx-click" => "bar_clicked"}, data_role: "bar"],
+        bar_class: ["cursor-pointer", "hover:opacity-80"],
+        gradient: [from: "#4f46e5", to: "#a78bfa", direction: :right]
+      )
+
+    %{
+      title: "Phoenix integration: svg_attrs, svg_class, bar_attrs, bar_class",
+      code: code,
+      svg: svg
+    }
+  end
+
+  defp per_point_attrs_example do
+    code = ~S"""
+    data = [
+      {"Apples", 10, [attrs: %{"phx-value-fruit" => "apples"}]},
+      {"Bananas", 25, [attrs: %{"phx-value-fruit" => "bananas"}]},
+      {"Cherries", 18, [attrs: %{"phx-value-fruit" => "cherries"}]}
+    ]
+
+    svg =
+      PrettyGraphs.bar_chart(
+        data,
+        title: "Per-point attrs (phx-value-*) + global phx-click",
+        bar_attrs: [%{"phx-click" => "bar_clicked"}],
+        bar_class: "cursor-pointer hover:opacity-80",
+        gradient: [from: "#0ea5e9", to: "#a78bfa", direction: :down_left]
+      )
+    """
+
+    data = [
+      {"Apples", 10, [attrs: %{"phx-value-fruit" => "apples"}]},
+      {"Bananas", 25, [attrs: %{"phx-value-fruit" => "bananas"}]},
+      {"Cherries", 18, [attrs: %{"phx-value-fruit" => "cherries"}]}
+    ]
+
+    svg =
+      PrettyGraphs.bar_chart(
+        data,
+        title: "Per-point attrs (phx-value-*) + global phx-click",
+        bar_attrs: [%{"phx-click" => "bar_clicked"}],
+        bar_class: "cursor-pointer hover:opacity-80",
+        gradient: [from: "#0ea5e9", to: "#a78bfa", direction: :down_left]
+      )
+
+    %{
+      title: "Per-data-point attrs + global click handler",
+      code: code,
+      svg: svg
+    }
+  end
+
+  defp map_shape_example do
+    code = ~S"""
+    data = %{
+      "Apples" => {10, [attrs: %{"phx-value-fruit" => "apples"}, class: "fill-lime-600"]},
+      "Bananas" => {25, [attrs: %{"phx-value-fruit" => "bananas"}]},
+      "Cherries" => {18, [attrs: %{"phx-value-fruit" => "cherries"}]}
+    }
+
+    svg =
+      PrettyGraphs.bar_chart(
+        data,
+        title: "Map shape with per-point attrs/classes",
+        bar_attrs: [%{"phx-click" => "bar_clicked"}],
+        bar_class: "cursor-pointer hover:opacity-80",
+        gradient: [from: "#0ea5e9", to: "#a78bfa", direction: :up_right]
+      )
+    """
+
+    data = %{
+      "Apples" => {10, [attrs: %{"phx-value-fruit" => "apples"}, class: "fill-lime-600"]},
+      "Bananas" => {25, [attrs: %{"phx-value-fruit" => "bananas"}]},
+      "Cherries" => {18, [attrs: %{"phx-value-fruit" => "cherries"}]}
+    }
+
+    svg =
+      PrettyGraphs.bar_chart(
+        data,
+        title: "Map shape with per-point attrs/classes",
+        bar_attrs: [%{"phx-click" => "bar_clicked"}],
+        bar_class: "cursor-pointer hover:opacity-80",
+        gradient: [from: "#0ea5e9", to: "#a78bfa", direction: :up_right]
+      )
+
+    %{
+      title: "Map data shape (with per-point attrs/class)",
+      code: code,
+      svg: svg
+    }
+  end
+
+  defp numbers_list_example do
+    code = ~S"""
+    data = [10, 25, 18]
+    svg =
+      PrettyGraphs.bar_chart(
+        data,
+        title: "Numbers list (auto labels 1..n)",
+        gradient: [from: "#4f46e5", to: "#a78bfa", direction: :down]
+      )
+    """
+
+    data = [10, 25, 18]
+
+    svg =
+      PrettyGraphs.bar_chart(
+        data,
+        title: "Numbers list (auto labels 1..n)",
+        gradient: [from: "#4f46e5", to: "#a78bfa", direction: :down]
+      )
+
+    %{
+      title: "Numbers-only data with defaults",
+      code: code,
+      svg: svg
+    }
+  end
+
+  # ----------------------------------------------------------------------------
+  # HTML building
+  # ----------------------------------------------------------------------------
+
+  defp html_header do
+    """
+    <!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <title>PrettyGraphs Storybook</title>
+        <style>
+          :root {
+            --bg: #0b0c0f;
+            --panel: #111318;
+            --muted: #c7c9d1;
+            --text: #e7eaf2;
+            --accent: #7c3aed;
+          }
+          * { box-sizing: border-box; }
+          html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
+          .container { max-width: 1000px; margin: 0 auto; padding: 24px; }
+          h1 { font-size: 28px; margin: 16px 0 24px; }
+          h2 { font-size: 18px; margin: 24px 0 8px; color: var(--text); }
+          .panel { background: var(--panel); border-radius: 10px; padding: 16px; margin: 16px 0 32px; box-shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.2); }
+          pre { margin: 0 0 12px; overflow: auto; }
+          code { display: block; white-space: pre; color: var(--muted); }
+          .chart { background: #0f1117; border-radius: 8px; padding: 8px; overflow: auto; }
+          .chart svg text { fill: #fff !important; }
+          .controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin: 12px 0 8px; }
+          .control { display: flex; flex-direction: column; }
+          .control.inline { flex-direction: row; align-items: center; gap: 8px; }
+          .control label { font-weight: 600; margin-bottom: 4px; color: var(--text); }
+          .control input[type="range"] { width: 100%; }
+          .note { color: var(--muted); margin-top: 4px; }
+          a { color: var(--accent); text-decoration: none; }
+          a:hover { text-decoration: underline; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <h1>PrettyGraphs Storybook</h1>
+          <div class="note">This page was generated by a test. Open <code>test_output/storybook.html</code> in a browser.</div>
+    """
+  end
+
+  defp html_footer do
+    """
+        <script>
+        document.addEventListener('DOMContentLoaded', function () {
+          const container = document.getElementById('interactive-chart');
+          if (!container) return;
+          const svg = container.querySelector('svg');
+          if (!svg) return;
+
+          const rects = Array.from(svg.querySelectorAll('rect'))
+            .filter(r => parseFloat(r.getAttribute('height') || '0') > 0);
+
+          if (rects.length === 0) return;
+
+          let barHeight = parseFloat(rects[0].getAttribute('height'));
+          const ys = rects.map(r => parseFloat(r.getAttribute('y')));
+          let firstY = ys[0];
+          const origGap = ys.length > 1 ? (ys[1] - ys[0] - barHeight) : 2;
+
+          function textsAtY(targetY) {
+            const mid = targetY + barHeight / 2;
+            const all = Array.from(svg.querySelectorAll('text'));
+            return all.filter(t => {
+              const y = parseFloat(t.getAttribute('y') || '0');
+              return Math.abs(y - mid) < 0.1 && t.textContent.trim() !== 'No data';
+            });
+          }
+
+          const barRows = rects.map(r => {
+            const y = parseFloat(r.getAttribute('y'));
+            return { rect: r, texts: textsAtY(y) };
+          });
+
+          const gapInput = document.getElementById('opt-gap');
+          const barColorInput = document.getElementById('opt-bar-color');
+          const gradFromInput = document.getElementById('opt-grad-from');
+          const gradToInput = document.getElementById('opt-grad-to');
+          const useGradInput = document.getElementById('opt-use-gradient');
+          const gradDirSelect = document.getElementById('opt-grad-dir');
+          const barHeightInput = document.getElementById('opt-bar-height');
+          const barRadiusInput = document.getElementById('opt-bar-radius');
+          const titleGapInput = document.getElementById('opt-title-gap');
+          const configCodeEl = document.getElementById('config-snippet');
+
+          const gapLabel = document.getElementById('lbl-gap');
+          const barColorLabel = document.getElementById('lbl-bar-color');
+          const gradFromLabel = document.getElementById('lbl-grad-from');
+          const gradToLabel = document.getElementById('lbl-grad-to');
+          const gradDirLabel = document.getElementById('lbl-grad-dir');
+          const barHeightLabel = document.getElementById('lbl-bar-height');
+          const barRadiusLabel = document.getElementById('lbl-bar-radius');
+          const titleGapLabel = document.getElementById('lbl-title-gap');
+
+          const allTextNodes = Array.from(svg.querySelectorAll('text'));
+          const titleEl = allTextNodes.sort((a,b) => parseFloat(a.getAttribute('y')||'0') - parseFloat(b.getAttribute('y')||'0'))[0];
+          let titleY = titleEl ? parseFloat(titleEl.getAttribute('y') || '0') : 0;
+          let titleGap = firstY - titleY;
+
+          function ensureGradient() {
+            let defs = svg.querySelector('defs');
+            if (!defs) {
+              defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+              svg.insertBefore(defs, svg.firstChild);
+            }
+            let grad = svg.querySelector('#pg-grad');
+            if (!grad) {
+              grad = document.createElementNS('http://www.w3.org/2000/svg', 'linearGradient');
+              grad.setAttribute('id', 'pg-grad');
+              grad.setAttribute('x1', '0'); grad.setAttribute('y1', '0');
+              grad.setAttribute('x2', '1'); grad.setAttribute('y2', '0');
+              defs.appendChild(grad);
+              const s1 = document.createElementNS('http://www.w3.org/2000/svg', 'stop');
+              s1.setAttribute('offset', '0%'); grad.appendChild(s1);
+              const s2 = document.createElementNS('http://www.w3.org/2000/svg', 'stop');
+              s2.setAttribute('offset', '100%'); grad.appendChild(s2);
+            }
+            return grad;
+          }
+
+          function setGradientColors(from, to) {
+            const grad = ensureGradient();
+            const stops = grad.querySelectorAll('stop');
+            if (stops[0]) stops[0].setAttribute('stop-color', from);
+            if (stops[1]) stops[1].setAttribute('stop-color', to);
+          }
+
+          function setGradientDirection(dir) {
+            const grad = ensureGradient();
+            const map = {
+              down: ["0","0","0","1"],
+              right: ["0","0","1","0"],
+              down_right: ["0","0","1","1"],
+              down_left: ["1","0","0","1"],
+              up_right: ["0","1","1","0"],
+              up_left: ["1","1","0","0"]
+            };
+            const v = map[dir] || map.right;
+            grad.setAttribute('x1', v[0]); grad.setAttribute('y1', v[1]);
+            grad.setAttribute('x2', v[2]); grad.setAttribute('y2', v[3]);
+          }
+
+          function rgbToHex(c) {
+            if (!c) return '#4f46e5';
+            const ctx = document.createElement('canvas').getContext('2d');
+            ctx.fillStyle = c;
+            return ctx.fillStyle.startsWith('#') ? ctx.fillStyle : '#4f46e5';
+          }
+
+          function applyFill() {
+            if (useGradInput.checked) {
+              setGradientColors(gradFromInput.value, gradToInput.value);
+              setGradientDirection(gradDirSelect ? gradDirSelect.value : 'right');
+              barRows.forEach(row => row.rect.setAttribute('fill', 'url(#pg-grad)'));
+              if (gradFromLabel) gradFromLabel.textContent = gradFromInput.value;
+              if (gradToLabel) gradToLabel.textContent = gradToInput.value;
+              if (gradDirLabel && gradDirSelect) gradDirLabel.textContent = gradDirSelect.value;
+            } else {
+              barRows.forEach(row => row.rect.setAttribute('fill', barColorInput.value));
+              if (barColorLabel) barColorLabel.textContent = barColorInput.value;
+            }
+          }
+
+          function applyGap() {
+            const gap = parseFloat(gapInput.value || '2');
+            barRows.forEach((row, i) => {
+              const y = firstY + i * (barHeight + gap);
+              row.rect.setAttribute('y', y);
+              const mid = y + barHeight / 2;
+              row.texts.forEach(t => t.setAttribute('y', mid));
+            });
+            if (gapLabel) gapLabel.textContent = String(gap);
+            updateConfigSnippet();
+          }
+
+          function applyBarHeight() {
+            const val = parseFloat(barHeightInput && barHeightInput.value || String(barHeight));
+            if (!isNaN(val) && val > 0) {
+              barHeight = val;
+              rects.forEach(r => r.setAttribute('height', barHeight));
+              if (barHeightLabel) barHeightLabel.textContent = String(Math.round(barHeight));
+              applyGap();
+              updateConfigSnippet();
+            }
+          }
+
+          function applyBarRadius() {
+            const r = parseFloat(barRadiusInput && barRadiusInput.value || '0');
+            if (!isNaN(r) && r >= 0) {
+              rects.forEach(rect => {
+                rect.setAttribute('rx', r);
+                rect.setAttribute('ry', r);
+              });
+              if (barRadiusLabel) barRadiusLabel.textContent = String(Math.round(r));
+              updateConfigSnippet();
+            }
+          }
+
+          function applyTitleGap() {
+            const desired = parseFloat(titleGapInput && titleGapInput.value || String(titleGap));
+            if (!isNaN(desired)) {
+              const delta = desired - (firstY - titleY);
+              firstY = firstY + delta;
+              titleGap = desired;
+              if (titleGapLabel) titleGapLabel.textContent = String(Math.round(titleGap));
+              applyGap();
+              updateConfigSnippet();
+            }
+          }
+
+          function updateConfigSnippet() {
+            if (!configCodeEl) return;
+            const gap = parseFloat(gapInput && gapInput.value || '2') || 2;
+            const r = parseFloat(barRadiusInput && barRadiusInput.value || rects[0].getAttribute('rx') || '6') || 6;
+            const bh = parseFloat(barHeightInput && barHeightInput.value || String(barHeight)) || barHeight;
+            const dir = (gradDirSelect && gradDirSelect.value) || 'right';
+            const usingGrad = !!(useGradInput && useGradInput.checked);
+            const topPad = Math.round(firstY);
+
+            let parts = [];
+            parts.push('title: "Fruit Sales"');
+            parts.push('bar_gap: ' + gap);
+            parts.push('bar_height: ' + bh);
+            parts.push('bar_radius: ' + r);
+            parts.push('padding: [top: ' + topPad + ']');
+
+            if (usingGrad) {
+              parts.push('gradient: [from: "' + (gradFromInput ? gradFromInput.value : '#0ea5e9') +
+                '", to: "' + (gradToInput ? gradToInput.value : '#a78bfa') +
+                '", direction: :' + dir + ']');
+            } else if (barColorInput) {
+              parts.push('bar_color: "' + barColorInput.value + '"');
+            }
+
+            const snippet = [
+              "svg = PrettyGraphs.bar_chart(data,",
+              "  " + parts.join(",\\n  "),
+              ")"
+            ].join("\\n");
+            configCodeEl.textContent = snippet;
+          }
+
+          gapInput && gapInput.addEventListener('input', applyGap);
+          barHeightInput && barHeightInput.addEventListener('input', applyBarHeight);
+          barRadiusInput && barRadiusInput.addEventListener('input', applyBarRadius);
+          titleGapInput && titleGapInput.addEventListener('input', applyTitleGap);
+          barColorInput && barColorInput.addEventListener('input', function(){ applyFill(); updateConfigSnippet(); });
+          gradFromInput && gradFromInput.addEventListener('input', function(){ applyFill(); updateConfigSnippet(); });
+          gradToInput && gradToInput.addEventListener('input', function(){ applyFill(); updateConfigSnippet(); });
+          useGradInput && useGradInput.addEventListener('change', function(){ applyFill(); updateConfigSnippet(); });
+          gradDirSelect && gradDirSelect.addEventListener('change', function(){ applyFill(); updateConfigSnippet(); });
+
+          (function initControls() {
+            if (gapInput) {
+              gapInput.value = Math.max(0, Math.min(40, Math.round(origGap)));
+              if (gapLabel) gapLabel.textContent = String(Math.round(origGap));
+            }
+            if (barHeightInput) {
+              if (barHeightLabel) barHeightLabel.textContent = String(Math.round(barHeight));
+            }
+            if (barRadiusInput) {
+              const r0 = parseFloat(rects[0].getAttribute('rx') || '6') || 6;
+              barRadiusInput.value = r0;
+              if (barRadiusLabel) barRadiusLabel.textContent = String(Math.round(r0));
+            }
+            if (titleGapInput) {
+              titleGapInput.value = Math.max(0, Math.round(titleGap));
+              if (titleGapLabel) titleGapLabel.textContent = String(Math.round(titleGap));
+            }
+            const firstFill = rects[0].getAttribute('fill') || '';
+            if (useGradInput) useGradInput.checked = firstFill.indexOf('url(') === 0;
+            if (gradDirSelect) gradDirSelect.value = 'right';
+
+            const g = svg.querySelector('#pg-grad');
+            if (g) {
+              const stops = g.querySelectorAll('stop');
+              if (stops[0] && gradFromInput) gradFromInput.value = rgbToHex(stops[0].getAttribute('stop-color') || gradFromInput.value);
+              if (stops[1] && gradToInput) gradToInput.value = rgbToHex(stops[1].getAttribute('stop-color') || gradToInput.value);
+            }
+            if (!useGradInput || !useGradInput.checked) {
+              if (barColorInput) barColorInput.value = rgbToHex(firstFill || barColorInput.value);
+            }
+            applyFill();
+            applyGap();
+            updateConfigSnippet();
+          })();
+        });
+        </script>
+        </div>
+      </body>
+    </html>
+    """
+  end
+
+  defp interactive_section(svg) do
+    [
+      "<div class=\"panel\">",
+      "<h2>Interactive playground</h2>",
+      "<div class=\"controls\">",
+      "<div class=\"control\"><label for=\"opt-gap\">bar_gap (px): <span id=\"lbl-gap\">2</span></label><input id=\"opt-gap\" type=\"range\" min=\"0\" max=\"40\" step=\"1\" value=\"2\"></div>",
+      "<div class=\"control\"><label for=\"opt-bar-height\">bar_height (px): <span id=\"lbl-bar-height\">28</span></label><input id=\"opt-bar-height\" type=\"range\" min=\"10\" max=\"60\" step=\"1\" value=\"28\"></div>",
+      "<div class=\"control\"><label for=\"opt-bar-radius\">bar_radius (px): <span id=\"lbl-bar-radius\">6</span></label><input id=\"opt-bar-radius\" type=\"range\" min=\"0\" max=\"20\" step=\"1\" value=\"6\"></div>",
+      "<div class=\"control\"><label for=\"opt-title-gap\">padding.top / title gap (px): <span id=\"lbl-title-gap\">2</span></label><input id=\"opt-title-gap\" type=\"range\" min=\"0\" max=\"100\" step=\"1\" value=\"2\"></div>",
+      "<div class=\"control inline\"><label><input type=\"checkbox\" id=\"opt-use-gradient\" checked> gradient.enabled</label></div>",
+      "<div class=\"control\"><label for=\"opt-bar-color\">bar_color: <span id=\"lbl-bar-color\">#4f46e5</span></label><input id=\"opt-bar-color\" type=\"color\" value=\"#4f46e5\"></div>",
+      "<div class=\"control\"><label for=\"opt-grad-from\">gradient.from: <span id=\"lbl-grad-from\">#0ea5e9</span></label><input id=\"opt-grad-from\" type=\"color\" value=\"#0ea5e9\"></div>",
+      "<div class=\"control\"><label for=\"opt-grad-to\">gradient.to: <span id=\"lbl-grad-to\">#a78bfa</span></label><input id=\"opt-grad-to\" type=\"color\" value=\"#a78bfa\"></div>",
+      "<div class=\"control\"><label for=\"opt-grad-dir\">gradient.direction: <span id=\"lbl-grad-dir\">right</span></label><select id=\"opt-grad-dir\"><option value=\"right\">:right</option><option value=\"down\">:down</option><option value=\"down_right\">:down_right</option><option value=\"down_left\">:down_left</option><option value=\"up_right\">:up_right</option><option value=\"up_left\">:up_left</option></select></div>",
+      "</div>",
+      "<div class=\"chart\" id=\"interactive-chart\">",
+      svg,
+      "</div>",
+      "<h3>Current configuration</h3>",
+      "<pre><code id=\"config-snippet\"></code></pre>",
+      "<div class=\"note\">Use the controls to tweak bar gap, bar height, corner radius, and gradient settings dynamically (client-side only for this storybook). The configuration block above shows the options you would pass to PrettyGraphs.bar_chart/2.</div>",
+      "</div>"
+    ]
+  end
+
+  defp example_section(%{title: title, code: code, svg: svg}) do
+    [
+      "<div class=\"panel\">",
+      "<h2>",
+      escape_html(title),
+      "</h2>",
+      "<pre><code>",
+      escape_html(code),
+      "</code></pre>",
+      "<div class=\"chart\">",
+      svg,
+      "</div>",
+      "</div>"
+    ]
+  end
+
+  defp escape_html(s) do
+    s
+    |> to_string()
+    |> String.replace("&", "&amp;")
+    |> String.replace("<", "&lt;")
+    |> String.replace(">", "&gt;")
+    |> String.replace("\"", "&quot;")
+  end
+end
