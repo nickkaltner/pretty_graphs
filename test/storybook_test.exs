@@ -9,6 +9,7 @@ defmodule PrettyGraphs.StorybookTest do
 
     examples = [
       basic,
+      responsive_example(),
       gradient_diagonal_example(),
       phoenix_global_attrs_example(),
       per_point_attrs_example(),
@@ -230,6 +231,31 @@ defmodule PrettyGraphs.StorybookTest do
     }
   end
 
+  defp responsive_example do
+    code = ~S"""
+    # Make the SVG fill its container width via CSS.
+    # In this storybook we apply:
+    #   .chart svg { width: 100%; height: auto; }
+    #
+    # Or in LiveView/Tailwind you could wrap in a responsive container:
+    #   <div class="w-full max-w-3xl"><%= Phoenix.HTML.raw(svg) %></div>
+    #
+    # If the library supports it, you can also pass a responsive option:
+    #   svg = PrettyGraphs.bar_chart(data, title: "Responsive width", responsive: true)
+    data = [{"Apples", 10}, {"Bananas", 25}, {"Cherries", 18}]
+    svg = PrettyGraphs.bar_chart(data, title: "Responsive width", responsive: true)
+    """
+
+    data = [{"Apples", 10}, {"Bananas", 25}, {"Cherries", 18}]
+    svg = PrettyGraphs.bar_chart(data, title: "Responsive width", responsive: true)
+
+    %{
+      title: "Responsive width (fills parent container)",
+      code: code,
+      svg: svg
+    }
+  end
+
   # ----------------------------------------------------------------------------
   # HTML building
   # ----------------------------------------------------------------------------
@@ -258,6 +284,7 @@ defmodule PrettyGraphs.StorybookTest do
           pre { margin: 0 0 12px; overflow: auto; }
           code { display: block; white-space: pre; color: var(--muted); }
           .chart { background: #0f1117; border-radius: 8px; padding: 8px; overflow: auto; }
+          .chart svg { width: 100%; display: block; }
           .chart svg text { fill: #fff !important; }
           .controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin: 12px 0 8px; }
           .control { display: flex; flex-direction: column; }
@@ -344,13 +371,15 @@ defmodule PrettyGraphs.StorybookTest do
             if (!grad) {
               grad = document.createElementNS('http://www.w3.org/2000/svg', 'linearGradient');
               grad.setAttribute('id', 'pg-grad');
-              grad.setAttribute('x1', '0'); grad.setAttribute('y1', '0');
-              grad.setAttribute('x2', '1'); grad.setAttribute('y2', '0');
+              grad.setAttribute('gradientUnits', 'userSpaceOnUse');
+              // Initial coordinates will be set by setGradientDirection
               defs.appendChild(grad);
               const s1 = document.createElementNS('http://www.w3.org/2000/svg', 'stop');
               s1.setAttribute('offset', '0%'); grad.appendChild(s1);
               const s2 = document.createElementNS('http://www.w3.org/2000/svg', 'stop');
               s2.setAttribute('offset', '100%'); grad.appendChild(s2);
+            } else {
+              grad.setAttribute('gradientUnits', 'userSpaceOnUse');
             }
             return grad;
           }
@@ -364,13 +393,20 @@ defmodule PrettyGraphs.StorybookTest do
 
           function setGradientDirection(dir) {
             const grad = ensureGradient();
+            // Compute bars bounding box to align gradient across all bars (userSpaceOnUse)
+            const left = Math.min(...rects.map(r => parseFloat(r.getAttribute('x') || '0')));
+            const right = Math.max(...rects.map(r => parseFloat(r.getAttribute('x') || '0') + parseFloat(r.getAttribute('width') || '0')));
+            const top = Math.min(...rects.map(r => parseFloat(r.getAttribute('y') || '0')));
+            const gap = parseFloat(gapInput && gapInput.value || '2');
+            const h = barRows.length * barHeight + (barRows.length > 1 ? (barRows.length - 1) * gap : 0);
+            const bottom = top + h;
             const map = {
-              down: ["0","0","0","1"],
-              right: ["0","0","1","0"],
-              down_right: ["0","0","1","1"],
-              down_left: ["1","0","0","1"],
-              up_right: ["0","1","1","0"],
-              up_left: ["1","1","0","0"]
+              down: [left, top, left, bottom],
+              right: [left, top, right, top],
+              down_right: [left, top, right, bottom],
+              down_left: [right, top, left, bottom],
+              up_right: [left, bottom, right, top],
+              up_left: [right, bottom, left, top]
             };
             const v = map[dir] || map.right;
             grad.setAttribute('x1', v[0]); grad.setAttribute('y1', v[1]);
@@ -385,14 +421,69 @@ defmodule PrettyGraphs.StorybookTest do
           }
 
           function applyFill() {
+            const ns = 'http://www.w3.org/2000/svg';
             if (useGradInput.checked) {
               setGradientColors(gradFromInput.value, gradToInput.value);
               setGradientDirection(gradDirSelect ? gradDirSelect.value : 'right');
-              barRows.forEach(row => row.rect.setAttribute('fill', 'url(#pg-grad)'));
+              // Ensure/refresh clipPath that unions all bars
+              let defs = svg.querySelector('defs');
+              if (!defs) {
+                defs = document.createElementNS(ns, 'defs');
+                svg.insertBefore(defs, svg.firstChild);
+              }
+              let clip = svg.querySelector('#pg-bars-clip');
+              if (!clip) {
+                clip = document.createElementNS(ns, 'clipPath');
+                clip.setAttribute('id', 'pg-bars-clip');
+                clip.setAttribute('clipPathUnits', 'userSpaceOnUse');
+                defs.appendChild(clip);
+              }
+              // Rebuild clipPath rects
+              while (clip.firstChild) clip.removeChild(clip.firstChild);
+              rects.forEach(r => {
+                const cr = document.createElementNS(ns, 'rect');
+                cr.setAttribute('x', r.getAttribute('x'));
+                cr.setAttribute('y', r.getAttribute('y'));
+                cr.setAttribute('width', r.getAttribute('width'));
+                cr.setAttribute('height', r.getAttribute('height'));
+                cr.setAttribute('rx', r.getAttribute('rx') || '0');
+                cr.setAttribute('ry', r.getAttribute('ry') || '0');
+                clip.appendChild(cr);
+                // Make bars transparent so gradient backdrop shows through
+                r.setAttribute('fill', 'transparent');
+              });
+              // Ensure gradient backdrop layer
+              let layer = svg.querySelector('#pg-grad-layer');
+              if (!layer) {
+                layer = document.createElementNS(ns, 'g');
+                layer.setAttribute('id', 'pg-grad-layer');
+                svg.insertBefore(layer, svg.firstChild.nextSibling); // after defs
+              }
+              layer.setAttribute('clip-path', 'url(#pg-bars-clip)');
+              let back = svg.querySelector('#pg-grad-backdrop');
+              if (!back) {
+                back = document.createElementNS(ns, 'rect');
+                back.setAttribute('id', 'pg-grad-backdrop');
+                layer.appendChild(back);
+              }
+              // Compute bars bbox for backdrop size
+              const left = Math.min(...rects.map(r => parseFloat(r.getAttribute('x') || '0')));
+              const right = Math.max(...rects.map(r => parseFloat(r.getAttribute('x') || '0') + parseFloat(r.getAttribute('width') || '0')));
+              const top = Math.min(...rects.map(r => parseFloat(r.getAttribute('y') || '0')));
+              const gap = parseFloat(gapInput && gapInput.value || '2');
+              const h = barRows.length * barHeight + (barRows.length > 1 ? (barRows.length - 1) * gap : 0);
+              back.setAttribute('x', String(left));
+              back.setAttribute('y', String(top));
+              back.setAttribute('width', String(Math.max(0, right - left)));
+              back.setAttribute('height', String(h));
+              back.setAttribute('fill', 'url(#pg-grad)');
               if (gradFromLabel) gradFromLabel.textContent = gradFromInput.value;
               if (gradToLabel) gradToLabel.textContent = gradToInput.value;
               if (gradDirLabel && gradDirSelect) gradDirLabel.textContent = gradDirSelect.value;
             } else {
+              // Remove gradient layer and restore solid bar fills
+              const layer = svg.querySelector('#pg-grad-layer');
+              if (layer) layer.remove();
               barRows.forEach(row => row.rect.setAttribute('fill', barColorInput.value));
               if (barColorLabel) barColorLabel.textContent = barColorInput.value;
             }
@@ -406,6 +497,10 @@ defmodule PrettyGraphs.StorybookTest do
               const mid = y + barHeight / 2;
               row.texts.forEach(t => t.setAttribute('y', mid));
             });
+            if (useGradInput.checked) {
+              // Update clip rects and backdrop geometry to match new positions
+              applyFill(); // reuses logic to rebuild clip + backdrop and keep gradient aligned
+            }
             if (gapLabel) gapLabel.textContent = String(gap);
             updateConfigSnippet();
           }
@@ -428,6 +523,10 @@ defmodule PrettyGraphs.StorybookTest do
                 rect.setAttribute('rx', r);
                 rect.setAttribute('ry', r);
               });
+              if (useGradInput.checked) {
+                // Rebuild clipPath with new radii and ensure backdrop remains sized correctly
+                applyFill();
+              }
               if (barRadiusLabel) barRadiusLabel.textContent = String(Math.round(r));
               updateConfigSnippet();
             }

@@ -156,10 +156,19 @@ defmodule PrettyGraphs do
       title_color = Keyword.get(opts, :title_color, "#111827")
       background = Keyword.get(opts, :background, nil)
       gradient = normalize_gradient(Keyword.get(opts, :gradient, nil))
-      svg_attrs = Keyword.get(opts, :svg_attrs, [])
+      svg_attrs0 = Keyword.get(opts, :svg_attrs, [])
       svg_class = normalize_class(Keyword.get(opts, :svg_class, nil))
       bar_attrs = Keyword.get(opts, :bar_attrs, [])
       bar_class = normalize_class(Keyword.get(opts, :bar_class, nil))
+      responsive? = Keyword.get(opts, :responsive, false)
+
+      # If responsive, set width="100%" and disable aspect ratio preservation so bars expand to parent width.
+      svg_attrs =
+        if responsive? do
+          merge_attrs(svg_attrs0, %{"preserveAspectRatio" => "none", "data-pg-width" => "100%"})
+        else
+          svg_attrs0
+        end
 
       font_family = Keyword.get(opts, :font_family, @default_font_family)
       font_size = Keyword.get(opts, :font_size, 12)
@@ -206,8 +215,37 @@ defmodule PrettyGraphs do
 
       defs =
         case gradient do
-          nil -> ""
-          _ -> gradient_defs("pg-grad", gradient)
+          nil ->
+            ""
+
+          _ ->
+            bar_geoms =
+              Enum.with_index(data)
+              |> Enum.map(fn {item, idx} ->
+                y = padding.top + idx * (bar_height + bar_gap)
+                bar_w = scale.(item.value)
+
+                %{
+                  x: padding.left,
+                  y: y,
+                  width: bar_w,
+                  height: bar_height,
+                  rx: bar_radius,
+                  ry: bar_radius
+                }
+              end)
+
+            [
+              gradient_defs(
+                "pg-grad",
+                gradient,
+                padding.left,
+                padding.top,
+                inner_width,
+                bars_total_height
+              ),
+              bars_clip_defs("pg-bars-clip", bar_geoms)
+            ]
         end
 
       title_text =
@@ -232,7 +270,7 @@ defmodule PrettyGraphs do
       fill_value =
         case gradient do
           nil -> bar_color
-          _ -> "url(#pg-grad)"
+          _ -> "transparent"
         end
 
       bars =
@@ -296,6 +334,23 @@ defmodule PrettyGraphs do
 
           [label_text, rect_el, value_text]
         end)
+
+      # Insert a single gradient layer clipped by bar shapes, so bars act as windows over a global gradient
+      bars =
+        case gradient do
+          nil ->
+            bars
+
+          _ ->
+            [
+              gradient_layer(
+                x: padding.left,
+                y: padding.top,
+                width: inner_width,
+                height: bars_total_height
+              )
+            ] ++ bars
+        end
 
       empty_state =
         if n == 0 do
@@ -440,22 +495,24 @@ defmodule PrettyGraphs do
       }
     end
 
-    defp gradient_defs(id, %{from: from, to: to, direction: dir}) do
+    defp gradient_defs(id, %{from: from, to: to, direction: dir}, x, y, w, h) do
       {x1, y1, x2, y2} =
         case dir do
-          :down -> {"0", "0", "0", "1"}
-          :right -> {"0", "0", "1", "0"}
-          :down_right -> {"0", "0", "1", "1"}
-          :down_left -> {"1", "0", "0", "1"}
-          :up_right -> {"0", "1", "1", "0"}
-          :up_left -> {"1", "1", "0", "0"}
-          _ -> {"0", "0", "1", "0"}
+          :down -> {x, y, x, y + h}
+          :right -> {x, y, x + w, y}
+          :down_right -> {x, y, x + w, y + h}
+          :down_left -> {x + w, y, x, y + h}
+          :up_right -> {x, y + h, x + w, y}
+          :up_left -> {x + w, y + h, x, y}
+          _ -> {x, y, x + w, y}
         end
 
       [
         "<defs>",
         "<linearGradient id=",
         attr(id),
+        " gradientUnits=",
+        attr("userSpaceOnUse"),
         " x1=",
         attr(x1),
         " y1=",
@@ -476,6 +533,40 @@ defmodule PrettyGraphs do
       ]
     end
 
+    defp bars_clip_defs(id, geoms) do
+      [
+        "<defs>",
+        "<clipPath id=",
+        attr(id),
+        " clipPathUnits=",
+        attr("userSpaceOnUse"),
+        ">",
+        Enum.map(geoms, fn g ->
+          rect_el(
+            x: g.x,
+            y: g.y,
+            width: g.width,
+            height: g.height,
+            rx: g.rx,
+            ry: g.ry,
+            fill: "transparent"
+          )
+        end),
+        "</clipPath>",
+        "</defs>"
+      ]
+    end
+
+    defp gradient_layer(x: x, y: y, width: w, height: h) do
+      [
+        "<g clip-path=",
+        attr("url(#pg-bars-clip)"),
+        ">",
+        rect_el(x: x, y: y, width: w, height: h, rx: 0, ry: 0, fill: "url(#pg-grad)"),
+        "</g>"
+      ]
+    end
+
     defp svg_tag_open_close(
            width: width,
            height: height,
@@ -483,10 +574,16 @@ defmodule PrettyGraphs do
            class: class,
            extra_attrs: extra_attrs
          ) do
+      # Allow overriding the output width attribute via a special extra attr.
+      # This enables responsive width (e.g., "100%") while keeping a numeric viewBox.
+      attr_map = to_attr_map(extra_attrs)
+      attr_width = Map.get(attr_map, "data-pg-width", width)
+      cleaned_attrs = Map.delete(attr_map, "data-pg-width")
+
       open = [
         "<svg xmlns=\"http://www.w3.org/2000/svg\"",
         " width=",
-        attr(width),
+        attr(attr_width),
         " height=",
         attr(height),
         " viewBox=",
@@ -496,7 +593,7 @@ defmodule PrettyGraphs do
         " aria-label=",
         attr("Bar chart"),
         if(class && String.trim(to_string(class)) != "", do: [" class=", attr(class)], else: []),
-        attrs_kv_to_iolist(extra_attrs),
+        attrs_kv_to_iolist(cleaned_attrs),
         ">"
       ]
 
@@ -513,10 +610,16 @@ defmodule PrettyGraphs do
       rect_bg =
         rect_el(x: 0, y: 0, width: width, height: height, rx: 0, ry: 0, fill: bg)
 
+      # Allow overriding the output width attribute via a special extra attr.
+      # This enables responsive width (e.g., "100%") while keeping a numeric viewBox.
+      attr_map = to_attr_map(extra_attrs)
+      attr_width = Map.get(attr_map, "data-pg-width", width)
+      cleaned_attrs = Map.delete(attr_map, "data-pg-width")
+
       open = [
         "<svg xmlns=\"http://www.w3.org/2000/svg\"",
         " width=",
-        attr(width),
+        attr(attr_width),
         " height=",
         attr(height),
         " viewBox=",
@@ -526,7 +629,7 @@ defmodule PrettyGraphs do
         " aria-label=",
         attr("Bar chart"),
         if(class && String.trim(to_string(class)) != "", do: [" class=", attr(class)], else: []),
-        attrs_kv_to_iolist(extra_attrs),
+        attrs_kv_to_iolist(cleaned_attrs),
         ">",
         rect_bg
       ]
