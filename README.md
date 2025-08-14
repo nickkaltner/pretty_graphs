@@ -1,4 +1,9 @@
 # PrettyGraphs
+[![Hex.pm Version](https://img.shields.io/hexpm/v/pretty_graphs.svg)](https://hex.pm/packages/pretty_graphs)
+[![Hex.pm Downloads](https://img.shields.io/hexpm/dt/pretty_graphs.svg)](https://hex.pm/packages/pretty_graphs)
+[![License](https://img.shields.io/hexpm/l/pretty_graphs.svg)](LICENSE)
+[![Docs](https://img.shields.io/badge/hexdocs-latest-blue.svg)](https://hexdocs.pm/pretty_graphs)
+
 
 PrettyGraphs is a tiny Elixir library for generating good‑looking SVG/HTML charts suitable for Phoenix LiveView and other HTML renderers.
 

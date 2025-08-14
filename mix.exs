@@ -4,7 +4,7 @@ defmodule PrettyGraphs.MixProject do
   @app :pretty_graphs
   @version "0.1.0"
   # <-- Update this to your real repo URL before publishing
-  @source_url "https://github.com/yourname/pretty_graphs"
+  @source_url "https://github.com/nickkaltner/pretty_graphs"
 
   def project do
     [
