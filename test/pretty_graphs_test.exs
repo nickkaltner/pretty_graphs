@@ -69,6 +69,27 @@ defmodule PrettyGraphsTest do
       assert svg =~ ~s(width="720")
       assert svg =~ ~s(viewBox="0 0 720 )
     end
+
+    test "gradient and clipPath IDs are unique per render" do
+      svg1 = PrettyGraphs.bar_chart([{"A", 1}], gradient: [from: "#111111", to: "#222222"])
+      svg2 = PrettyGraphs.bar_chart([{"A", 2}], gradient: [from: "#333333", to: "#444444"])
+
+      # Extract gradient ids
+      [id1] = Regex.run(~r/<linearGradient id="([^"]+)"/, svg1, capture: :all_but_first)
+      [id2] = Regex.run(~r/<linearGradient id="([^"]+)"/, svg2, capture: :all_but_first)
+      refute id1 == id2
+
+      # Extract clipPath ids
+      [clip1] = Regex.run(~r/<clipPath id="([^"]+)"/, svg1, capture: :all_but_first)
+      [clip2] = Regex.run(~r/<clipPath id="([^"]+)"/, svg2, capture: :all_but_first)
+      refute clip1 == clip2
+
+      # Ensure references use the matching ids
+      assert svg1 =~ "url(#" <> clip1 <> ")"
+      assert svg2 =~ "url(#" <> clip2 <> ")"
+      assert svg1 =~ "fill=\"url(#" <> id1 <> ")"
+      assert svg2 =~ "fill=\"url(#" <> id2 <> ")"
+    end
   end
 
   test "hello/0 smoke test for backward compat" do

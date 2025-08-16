@@ -156,6 +156,9 @@ defmodule PrettyGraphs do
       title_color = Keyword.get(opts, :title_color, "#111827")
       background = Keyword.get(opts, :background, nil)
       gradient = normalize_gradient(Keyword.get(opts, :gradient, nil))
+      uid = :erlang.unique_integer([:positive, :monotonic])
+      grad_id = "pg-grad-#{uid}"
+      clip_id = "pg-bars-clip-#{uid}"
       svg_attrs0 = Keyword.get(opts, :svg_attrs, [])
       svg_class = normalize_class(Keyword.get(opts, :svg_class, nil))
       bar_attrs = Keyword.get(opts, :bar_attrs, [])
@@ -237,14 +240,14 @@ defmodule PrettyGraphs do
 
             [
               gradient_defs(
-                "pg-grad",
+                grad_id,
                 gradient,
                 padding.left,
                 padding.top,
                 inner_width,
                 bars_total_height
               ),
-              bars_clip_defs("pg-bars-clip", bar_geoms)
+              bars_clip_defs(clip_id, bar_geoms)
             ]
         end
 
@@ -344,6 +347,8 @@ defmodule PrettyGraphs do
           _ ->
             [
               gradient_layer(
+                grad_id: grad_id,
+                clip_id: clip_id,
                 x: padding.left,
                 y: padding.top,
                 width: inner_width,
@@ -557,12 +562,12 @@ defmodule PrettyGraphs do
       ]
     end
 
-    defp gradient_layer(x: x, y: y, width: w, height: h) do
+    defp gradient_layer(grad_id: grad_id, clip_id: clip_id, x: x, y: y, width: w, height: h) do
       [
         "<g clip-path=",
-        attr("url(#pg-bars-clip)"),
+        attr("url(#" <> clip_id <> ")"),
         ">",
-        rect_el(x: x, y: y, width: w, height: h, rx: 0, ry: 0, fill: "url(#pg-grad)"),
+        rect_el(x: x, y: y, width: w, height: h, rx: 0, ry: 0, fill: "url(#" <> grad_id <> ")"),
         "</g>"
       ]
     end
